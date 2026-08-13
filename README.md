@@ -7,7 +7,7 @@ A Plurk-based online writing session service inspired by Shut Up &amp; Write!
 
 ----
 
-Shut Up and Write!
+# Shut Up and Write!
 
 受到 Shut Up & Write! 啟發的 Plurk Bot。
 
@@ -15,7 +15,7 @@ Shut Up and Write!
 
 雖然最初是以「寫作」為主要用途，但任何需要一段專注時間、時間管理或持續培養的活動，都可以使用這個 Bot。
 
-核心理念
+## 核心理念
 
 Bot 不管理人，Bot 管理時間。
 
@@ -30,7 +30,7 @@ Bot 不要求使用者報到，也不追蹤誰有沒有參加、什麼時候加�
 
 想加入的人可以一起進行；想安靜做事的人也可以完全不發言。
 
-運作方式
+## 運作方式
 
 使用者可以在 Plurk 上呼叫 Bot，建立一場活動，設定：
 
@@ -49,7 +49,7 @@ Bot 會建立一則獨立的活動 Plurk，並在原本的呼叫訊息下回覆�
 
 分享不是強制的。
 
-番茄工作法
+## 番茄工作法
 
 活動時間設定以 Pomodoro Technique（番茄工作法） 作為參考。
 
@@ -62,6 +62,6 @@ Bot 會建立一則獨立的活動 Plurk，並在原本的呼叫訊息下回覆�
 
 實際時間可以依個人需求調整。
 
-目前狀態
+## 目前狀態
 
 🚧 開發中
