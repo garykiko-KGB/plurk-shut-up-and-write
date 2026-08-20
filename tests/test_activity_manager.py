@@ -1,7 +1,7 @@
 import unittest
 
-from activity import Activity, ActivityConfig
-from activity_manager import ActivityManager
+from core.activity import Activity, ActivityConfig
+from core.activity_manager import ActivityManager
 
 
 class TestActivityManager(unittest.TestCase):
