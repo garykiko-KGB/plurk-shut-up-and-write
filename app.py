@@ -1,6 +1,5 @@
 import logging
 import threading
-import time
 from typing import Any
 
 from core.activity_manager import ActivityManager
@@ -145,9 +144,7 @@ class ShutUpAndWriteApp:
     # --------------------------------------------------
 
     def run(self) -> None:
-        """
-        Start the application and keep it running.
-        """
+        """Start the application and keep it running."""
 
         logger.info(
             "Shut Up & Write! 啟動。"
@@ -227,9 +224,7 @@ class ShutUpAndWriteApp:
         self,
         event: dict[str, Any],
     ) -> None:
-        """
-        Process one realtime payload.
-        """
+        """Process one realtime payload."""
 
         parsed_responses = (
             handle_realtime_event(
@@ -307,9 +302,8 @@ class ShutUpAndWriteApp:
         """
         Periodically advance all active activities.
 
-        Publishing of transition messages is intentionally not handled
-        here yet. This thread currently advances the Activity state and
-        records the resulting transitions.
+        Every transition is passed to PlurkPublisher so that the
+        activity Plurk receives the corresponding announcement.
         """
 
         logger.info(
@@ -349,29 +343,62 @@ class ShutUpAndWriteApp:
 
             for transition in transitions:
                 self._handle_activity_transition(
-                    activity.source_plurk_id,
+                    activity,
                     transition,
                 )
 
             if activity.is_finished:
-                # Keep the finished Activity in the manager for now.
-                #
-                # Cleanup policy will be handled once activity result
-                # reporting and final publishing are implemented.
+                # Finished activities are intentionally kept for now.
+                # Cleanup policy will be added together with final
+                # activity result handling.
                 pass
 
     def _handle_activity_transition(
         self,
-        source_plurk_id: int,
+        activity,
         transition: ActivityTransition,
     ) -> None:
-        """Log an Activity state transition."""
+        """
+        Publish one activity transition to the activity Plurk.
+        """
+
+        try:
+            response = (
+                self.publisher.publish_transition(
+                    activity,
+                    transition,
+                )
+            )
+
+        except ValueError as exc:
+            logger.warning(
+                "無法發布 Activity transition："
+                "plurk=%s transition=%s error=%s",
+                activity.source_plurk_id,
+                transition.value,
+                exc,
+            )
+            return
+
+        except Exception:
+            logger.exception(
+                "Activity transition 發布失敗："
+                "plurk=%s transition=%s",
+                activity.source_plurk_id,
+                transition.value,
+            )
+            return
 
         logger.info(
-            "Activity transition："
-            "plurk=%s transition=%s",
-            source_plurk_id,
+            "Activity transition 已發布："
+            "plurk=%s "
+            "activity_plurk=%s "
+            "transition=%s "
+            "response=%s",
+            activity.source_plurk_id,
+            activity.activity_plurk_id,
             transition.value,
+            response,
         )
 
     # --------------------------------------------------
