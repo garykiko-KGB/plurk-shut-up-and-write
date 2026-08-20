@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from command_parser import (
+from parsers.command_parser import (
     ActivityConfig,
     CommandParseError,
     parse_command,
