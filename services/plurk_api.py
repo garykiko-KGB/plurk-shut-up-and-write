@@ -52,6 +52,10 @@ class PlurkAPI:
             signature_method="HMAC-SHA1",
         )
 
+    # --------------------------------------------------
+    # Low-level HTTP methods
+    # --------------------------------------------------
+
     def get(
         self,
         endpoint: str,
@@ -59,12 +63,47 @@ class PlurkAPI:
     ) -> dict[str, Any]:
         """Send a GET request to the Plurk API."""
 
+        return self._request(
+            method="GET",
+            endpoint=endpoint,
+            params=params,
+        )
+
+    def post(
+        self,
+        endpoint: str,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Send a POST request to the Plurk API."""
+
+        return self._request(
+            method="POST",
+            endpoint=endpoint,
+            data=data,
+        )
+
+    def _request(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Send an authenticated request to the Plurk API.
+
+        GET parameters are sent through ``params``.
+        POST parameters are sent through form data.
+        """
+
         url = f"{PLURK_API_BASE}{endpoint}"
 
         try:
-            response = requests.get(
-                url,
+            response = requests.request(
+                method=method,
+                url=url,
                 params=params,
+                data=data,
                 auth=self.auth,
                 timeout=30,
             )
@@ -81,28 +120,45 @@ class PlurkAPI:
             )
 
         try:
-            data = response.json()
+            result = response.json()
         except ValueError as exc:
             raise PlurkAPIError(
                 "Plurk API 回傳的內容不是有效 JSON。"
             ) from exc
 
-        if isinstance(data, dict) and "error_text" in data:
+        if not isinstance(result, dict):
             raise PlurkAPIError(
-                f"Plurk API 錯誤：{data['error_text']}"
+                "Plurk API 回傳的 JSON 格式不是物件。"
             )
 
-        return data
+        if "error_text" in result:
+            raise PlurkAPIError(
+                f"Plurk API 錯誤：{result['error_text']}"
+            )
+
+        return result
+
+    # --------------------------------------------------
+    # Profile
+    # --------------------------------------------------
 
     def get_own_profile(self) -> dict[str, Any]:
         """Get the current Plurk account profile."""
 
         return self.get("/Users/me")
 
+    # --------------------------------------------------
+    # Realtime
+    # --------------------------------------------------
+
     def get_user_channel(self) -> dict[str, Any]:
         """Get the realtime channel for the current account."""
 
         return self.get("/Realtime/getUserChannel")
+
+    # --------------------------------------------------
+    # Responses
+    # --------------------------------------------------
 
     def get_responses(
         self,
@@ -117,4 +173,67 @@ class PlurkAPI:
                 "plurk_id": plurk_id,
                 "from_response": from_response,
             },
+        )
+
+    def add_response(
+        self,
+        plurk_id: int,
+        content: str,
+        qualifier: str = "says",
+    ) -> dict[str, Any]:
+        """
+        Add a response to a Plurk.
+
+        Plurk API requires:
+            - plurk_id
+            - content
+            - qualifier
+        """
+
+        return self.post(
+            "/Responses/responseAdd",
+            data={
+                "plurk_id": plurk_id,
+                "content": content,
+                "qualifier": qualifier,
+            },
+        )
+
+    # --------------------------------------------------
+    # Plurk creation
+    # --------------------------------------------------
+
+    def add_plurk(
+        self,
+        content: str,
+        qualifier: str = "says",
+        lang: str = "tr_ch",
+        limited_to: list[int] | None = None,
+        no_comments: int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create a new Plurk.
+
+        Defaults to:
+            qualifier = "says"
+            lang = "tr_ch" (Traditional Chinese)
+
+        Optional parameters are only sent when explicitly provided.
+        """
+
+        data: dict[str, Any] = {
+            "content": content,
+            "qualifier": qualifier,
+            "lang": lang,
+        }
+
+        if limited_to is not None:
+            data["limited_to"] = limited_to
+
+        if no_comments is not None:
+            data["no_comments"] = no_comments
+
+        return self.post(
+            "/Timeline/plurkAdd",
+            data=data,
         )
