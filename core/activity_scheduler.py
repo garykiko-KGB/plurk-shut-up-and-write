@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from activity import Activity, ActivityStatus
+from core.activity import Activity, ActivityStatus
 
 
 class ActivityTransition(str, Enum):
