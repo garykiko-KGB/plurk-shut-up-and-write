@@ -3,6 +3,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from core.activity import Activity
+from core.activity_scheduler import ActivityTransition
 from services.plurk_api import PlurkAPI
 
 
@@ -29,6 +30,7 @@ class PlurkPublisher:
         - Create the activity Plurk.
         - Build the reply for the source Plurk.
         - Reply to the source Plurk with the activity URL.
+        - Publish activity state transition announcements.
 
     This class does not:
         - manage Activity objects
@@ -87,6 +89,39 @@ class PlurkPublisher:
             activity_url=activity_url,
             activity_response=activity_response,
             source_response=source_response,
+        )
+
+    def publish_transition(
+        self,
+        activity: Activity,
+        transition: ActivityTransition,
+    ) -> dict[str, Any]:
+        """
+        Publish one Activity transition as a response
+        to the activity Plurk.
+
+        The activity must already have an activity_plurk_id.
+        """
+
+        activity_plurk_id = (
+            activity.activity_plurk_id
+        )
+
+        if activity_plurk_id is None:
+            raise ValueError(
+                "Activity 尚未建立活動噗，"
+                "無法發布 transition。"
+            )
+
+        content = self.build_transition_content(
+            activity,
+            transition,
+        )
+
+        return self.api.add_response(
+            plurk_id=activity_plurk_id,
+            content=content,
+            qualifier="says",
         )
 
     # --------------------------------------------------
@@ -184,6 +219,79 @@ class PlurkPublisher:
             f"🔁 共 {config.rounds} 回合\n"
             f"⏳ 準備 {config.prepare_time} 分鐘\n"
             f"📌 活動噗：{activity_url}"
+        )
+
+    # --------------------------------------------------
+    # Transition announcements
+    # --------------------------------------------------
+
+    def build_transition_content(
+        self,
+        activity: Activity,
+        transition: ActivityTransition,
+    ) -> str:
+        """Build the announcement for an activity transition."""
+
+        config = activity.config
+
+        if transition == ActivityTransition.START_WORK:
+            return self._build_start_work_content(
+                activity
+            )
+
+        if transition == ActivityTransition.START_BREAK:
+            return self._build_start_break_content(
+                activity
+            )
+
+        if transition == ActivityTransition.FINISH:
+            return self._build_finish_content(
+                activity
+            )
+
+        raise ValueError(
+            f"不支援的 ActivityTransition："
+            f"{transition}"
+        )
+
+    def _build_start_work_content(
+        self,
+        activity: Activity,
+    ) -> str:
+        """Build the announcement for the start of a work round."""
+
+        config = activity.config
+
+        return (
+            f"🟢 第 {activity.current_round} "
+            f"回合開始！\n"
+            f"現在開始寫作 {config.work_time} 分鐘。"
+        )
+
+    def _build_start_break_content(
+        self,
+        activity: Activity,
+    ) -> str:
+        """Build the announcement for the start of a break."""
+
+        config = activity.config
+
+        return (
+            f"🔵 第 {activity.current_round} "
+            f"回合結束。\n"
+            f"休息 {config.break_time} 分鐘。"
+        )
+
+    def _build_finish_content(
+        self,
+        activity: Activity,
+    ) -> str:
+        """Build the final activity announcement."""
+
+        return (
+            "🏁 活動完成！\n"
+            f"發起人 ID：{activity.owner_user_id}\n"
+            f"共完成 {activity.config.rounds} 回合。"
         )
 
     # --------------------------------------------------
