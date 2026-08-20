@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
 
-from activity import Activity
-from activity_manager import ActivityManager
-from activity_scheduler import ActivityScheduler
-from response_handler import ParsedResponse
+from core.activity import Activity
+from core.activity_manager import ActivityManager
+from core.activity_scheduler import ActivityScheduler
+from handlers.response_handler import ParsedResponse
 
 
 class ActivityService:
