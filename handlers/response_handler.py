@@ -6,11 +6,9 @@ from html import unescape
 from typing import Any
 
 from parsers.command_parser import (
+    ActivityConfig,
     CommandParseError,
     parse_command,
-)
-from parsers.command_parser import (
-    ActivityConfig,
 )
 
 
@@ -343,19 +341,33 @@ def _strip_html(
     content: str,
 ) -> str:
     """
-    Remove simple HTML tags and decode HTML entities.
+    Decode HTML entities first, then remove HTML tags.
 
-    Plurk may expose HTML in content fields. The parser receives
-    normalized text rather than HTML markup.
+    Plurk content may arrive either as literal HTML or with HTML
+    entities such as &lt;a ...&gt;.
     """
+
+    # Important:
+    # Decode entities BEFORE removing tags.
+    #
+    # Example:
+    #   &lt;a href="..."&gt;@AI_Anchor&lt;/a&gt; 開始
+    #
+    # becomes:
+    #   <a href="...">@AI_Anchor</a> 開始
+    #
+    # and then:
+    #   @AI_Anchor 開始
+    #
+    text = unescape(content)
 
     text = re.sub(
         r"<[^>]*>",
         "",
-        content,
+        text,
     )
 
-    return unescape(text)
+    return text
 
 
 def _get_content(
