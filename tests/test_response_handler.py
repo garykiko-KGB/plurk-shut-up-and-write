@@ -1,7 +1,7 @@
 import unittest
 
-from command_parser import ActivityConfig
-from response_handler import (
+from parsers.command_parser import ActivityConfig
+from handlers.response_handler import (
     ParsedResponse,
     handle_realtime_event,
 )
