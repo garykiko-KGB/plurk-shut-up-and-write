@@ -1,0 +1,309 @@
+from dataclasses import dataclass
+from datetime import timezone
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from core.activity import Activity
+from services.plurk_api import PlurkAPI
+
+
+TAIPEI_TIMEZONE = ZoneInfo("Asia/Taipei")
+PLURK_BASE_URL = "https://www.plurk.com/p"
+
+
+@dataclass(frozen=True)
+class PublishedActivity:
+    """Result of publishing an activity to Plurk."""
+
+    activity_plurk_id: int
+    activity_url: str
+    activity_response: dict[str, Any]
+    source_response: dict[str, Any]
+
+
+class PlurkPublisher:
+    """
+    Publish writing activities to Plurk.
+
+    Responsibilities:
+        - Build activity Plurk content.
+        - Create the activity Plurk.
+        - Build the reply for the source Plurk.
+        - Reply to the source Plurk with the activity URL.
+
+    This class does not:
+        - manage Activity objects
+        - advance activity state
+        - manage timers
+        - parse commands
+        - perform OAuth directly
+    """
+
+    def __init__(
+        self,
+        api: PlurkAPI,
+    ) -> None:
+        self.api = api
+
+    # --------------------------------------------------
+    # Public API
+    # --------------------------------------------------
+
+    def publish_activity(
+        self,
+        activity: Activity,
+    ) -> PublishedActivity:
+        """
+        Publish an activity Plurk and reply to the source Plurk.
+
+        The activity Plurk is created first so its URL can be included
+        in the response to the original command.
+
+        If the activity Plurk is created successfully but the source
+        response fails, the activity Plurk remains published and its
+        ID is still stored in the Activity object.
+        """
+
+        activity_response = self.create_activity_plurk(
+            activity
+        )
+
+        activity_plurk_id = self._extract_plurk_id(
+            activity_response
+        )
+
+        activity.activity_plurk_id = (
+            activity_plurk_id
+        )
+
+        activity_url = self.build_plurk_url(
+            activity_plurk_id
+        )
+
+        source_response = self.reply_to_source_plurk(
+            activity,
+            activity_url,
+        )
+
+        return PublishedActivity(
+            activity_plurk_id=activity_plurk_id,
+            activity_url=activity_url,
+            activity_response=activity_response,
+            source_response=source_response,
+        )
+
+    # --------------------------------------------------
+    # Activity Plurk
+    # --------------------------------------------------
+
+    def create_activity_plurk(
+        self,
+        activity: Activity,
+    ) -> dict[str, Any]:
+        """Create the dedicated activity Plurk."""
+
+        content = self.build_activity_content(
+            activity
+        )
+
+        return self.api.add_plurk(
+            content=content,
+            qualifier="says",
+            lang="tr_ch",
+        )
+
+    def build_activity_content(
+        self,
+        activity: Activity,
+    ) -> str:
+        """
+        Build the initial activity Plurk content.
+
+        The displayed start time is converted from UTC to Taiwan time.
+        """
+
+        config = activity.config
+        start_time = activity.next_transition_at
+
+        start_text = "準備時間初始化中"
+
+        if start_time is not None:
+            start_text = self._format_taipei_datetime(
+                start_time
+            )
+
+        return (
+            "📝 Shut Up & Write! 寫作活動\n"
+            "\n"
+            f"工作時間：{config.work_time} 分鐘\n"
+            f"休息時間：{config.break_time} 分鐘\n"
+            f"回合數：{config.rounds} 回合\n"
+            f"準備時間：{config.prepare_time} 分鐘\n"
+            f"預計開始：{start_text}\n"
+            "\n"
+            "想一起寫的人可以加入；"
+            "想安靜做事也完全沒問題。\n"
+            "活動開始後會依照設定進行計時。"
+        )
+
+    # --------------------------------------------------
+    # Source Plurk response
+    # --------------------------------------------------
+
+    def reply_to_source_plurk(
+        self,
+        activity: Activity,
+        activity_url: str,
+    ) -> dict[str, Any]:
+        """Reply to the original Plurk with the activity URL."""
+
+        content = self.build_source_response(
+            activity,
+            activity_url,
+        )
+
+        return self.api.add_response(
+            plurk_id=activity.source_plurk_id,
+            content=content,
+            qualifier="says",
+        )
+
+    def build_source_response(
+        self,
+        activity: Activity,
+        activity_url: str,
+    ) -> str:
+        """Build the response to the original command Plurk."""
+
+        config = activity.config
+
+        return (
+            "活動已建立！\n"
+            f"⏱ {config.work_time} 分鐘工作 / "
+            f"{config.break_time} 分鐘休息\n"
+            f"🔁 共 {config.rounds} 回合\n"
+            f"⏳ 準備 {config.prepare_time} 分鐘\n"
+            f"📌 活動噗：{activity_url}"
+        )
+
+    # --------------------------------------------------
+    # Plurk URL
+    # --------------------------------------------------
+
+    @classmethod
+    def build_plurk_url(
+        cls,
+        plurk_id: int,
+    ) -> str:
+        """
+        Build a web URL from the numeric Plurk ID.
+
+        Plurk web URLs use the base-36 representation of plurk_id.
+        """
+
+        if not isinstance(plurk_id, int):
+            raise TypeError(
+                "plurk_id 必須是 int。"
+            )
+
+        if plurk_id <= 0:
+            raise ValueError(
+                "plurk_id 必須是正整數。"
+            )
+
+        return (
+            f"{PLURK_BASE_URL}/"
+            f"{cls._to_base36(plurk_id)}"
+        )
+
+    @staticmethod
+    def _to_base36(value: int) -> str:
+        """Convert a positive integer to lowercase base-36."""
+
+        if value < 0:
+            raise ValueError(
+                "Base36 不接受負數。"
+            )
+
+        if value == 0:
+            return "0"
+
+        digits = (
+            "0123456789"
+            "abcdefghijklmnopqrstuvwxyz"
+        )
+
+        result: list[str] = []
+
+        while value:
+            value, remainder = divmod(
+                value,
+                36,
+            )
+            result.append(
+                digits[remainder]
+            )
+
+        result.reverse()
+
+        return "".join(result)
+
+    # --------------------------------------------------
+    # Response validation
+    # --------------------------------------------------
+
+    @staticmethod
+    def _extract_plurk_id(
+        response: dict[str, Any],
+    ) -> int:
+        """Extract and validate the new Plurk ID."""
+
+        value = response.get("plurk_id")
+
+        if isinstance(value, bool):
+            raise ValueError(
+                "Plurk API 回應的 plurk_id 無效。"
+            )
+
+        if isinstance(value, int):
+            plurk_id = value
+        elif isinstance(value, str) and value.isdigit():
+            plurk_id = int(value)
+        else:
+            raise ValueError(
+                "Plurk API 回應缺少有效的 plurk_id。"
+            )
+
+        if plurk_id <= 0:
+            raise ValueError(
+                "Plurk API 回應的 plurk_id 必須是正整數。"
+            )
+
+        return plurk_id
+
+    # --------------------------------------------------
+    # Date / time formatting
+    # --------------------------------------------------
+
+    @staticmethod
+    def _format_taipei_datetime(
+        value,
+    ) -> str:
+        """
+        Convert an aware datetime to Taiwan local time.
+
+        Internal Activity timestamps are stored as timezone-aware UTC.
+        """
+
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(
+                "Activity 時間必須是 timezone-aware datetime。"
+            )
+
+        taipei_time = value.astimezone(
+            TAIPEI_TIMEZONE
+        )
+
+        return taipei_time.strftime(
+            "%Y-%m-%d %H:%M"
+        )
