@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from command_parser import ActivityConfig
@@ -54,8 +54,9 @@ class Activity:
     next_transition_at: datetime | None = None
 
     # When this activity was created.
+    # Internal timestamps are always UTC and timezone-aware.
     created_at: datetime = field(
-        default_factory=datetime.now
+        default_factory=lambda: datetime.now(timezone.utc)
     )
 
     # --------------------------------------------------
