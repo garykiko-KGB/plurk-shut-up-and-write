@@ -1,14 +1,14 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from activity import ActivityConfig, ActivityStatus
-from activity_manager import ActivityManager
-from activity_scheduler import (
+from core.activity import ActivityConfig, ActivityStatus
+from core.activity_manager import ActivityManager
+from core.activity_scheduler import (
     ActivityScheduler,
     ActivityTransition,
 )
-from activity_service import ActivityService
-from response_handler import ParsedResponse
+from core.activity_service import ActivityService
+from handlers.response_handler import ParsedResponse
 
 
 class FailingScheduler:
