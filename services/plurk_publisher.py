@@ -168,7 +168,7 @@ class PlurkPublisher:
         return (
             "📝 Shut Up & Write! 寫作活動\n"
             "\n"
-            f"👤 發起人 ID：{activity.owner_user_id}\n"
+            f"👤 發起人：@{activity.owner_nick_name}\n"
             f"⏱ 工作時間：{config.work_time} 分鐘\n"
             f"☕ 休息時間：{config.break_time} 分鐘\n"
             f"🔁 回合數：{config.rounds} 回合\n"
@@ -213,7 +213,7 @@ class PlurkPublisher:
 
         return (
             "活動已建立！\n"
-            f"👤 發起人 ID：{activity.owner_user_id}\n"
+            f"👤 發起人：@{activity.owner_nick_name}\n"
             f"⏱ {config.work_time} 分鐘工作 / "
             f"{config.break_time} 分鐘休息\n"
             f"🔁 共 {config.rounds} 回合\n"
@@ -290,7 +290,7 @@ class PlurkPublisher:
 
         return (
             "🏁 活動完成！\n"
-            f"發起人 ID：{activity.owner_user_id}\n"
+            f"發起人：@{activity.owner_nick_name}\n"
             f"共完成 {activity.config.rounds} 回合。"
         )
 
