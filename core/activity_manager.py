@@ -1,4 +1,4 @@
-from activity import Activity
+from core.activity import Activity
 
 
 class ActivityManager:
