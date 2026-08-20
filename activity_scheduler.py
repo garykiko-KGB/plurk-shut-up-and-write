@@ -29,6 +29,26 @@ class ActivityScheduler:
 
         return datetime.now()
 
+    @staticmethod
+    def _get_start_time(
+        activity: Activity,
+        now: datetime,
+    ) -> datetime:
+        """
+        Determine the activity's actual starting point.
+
+        Normally, Activity.created_at is the source of truth.
+
+        If a caller supplies a simulated time earlier than created_at,
+        use the supplied time instead. This allows deterministic tests
+        with historical or simulated timestamps.
+        """
+
+        if activity.created_at <= now:
+            return activity.created_at
+
+        return now
+
     def initialize(
         self,
         activity: Activity,
@@ -38,6 +58,7 @@ class ActivityScheduler:
         Initialize the activity's first transition time.
 
         A newly created activity starts in PREPARING.
+        The preparation phase begins at the activity's creation time.
         """
 
         if activity.status != ActivityStatus.PREPARING:
@@ -48,9 +69,15 @@ class ActivityScheduler:
 
         current_time = now or self._now()
 
-        activity.phase_started_at = current_time
+        start_time = self._get_start_time(
+            activity,
+            current_time,
+        )
+
+        activity.phase_started_at = start_time
+
         activity.next_transition_at = (
-            current_time
+            start_time
             + timedelta(
                 minutes=activity.config.prepare_time
             )
@@ -128,16 +155,16 @@ class ActivityScheduler:
     ) -> ActivityTransition:
         """Move from PREPARING to the first WORKING round."""
 
-        activity.status = ActivityStatus.WORKING
-        activity.current_round = 1
-
         start_time = activity.next_transition_at
-        activity.phase_started_at = start_time
 
         if start_time is None:
             raise RuntimeError(
                 "Activity has no transition time."
             )
+
+        activity.status = ActivityStatus.WORKING
+        activity.current_round = 1
+        activity.phase_started_at = start_time
 
         activity.next_transition_at = (
             start_time
