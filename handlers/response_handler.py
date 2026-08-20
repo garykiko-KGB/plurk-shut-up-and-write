@@ -341,31 +341,28 @@ def _strip_html(
     content: str,
 ) -> str:
     """
-    Decode HTML entities first, then remove HTML tags.
+    Normalize Plurk content.
 
-    Plurk content may arrive either as literal HTML or with HTML
-    entities such as &lt;a ...&gt;.
+    Handles literal HTML, HTML entities, and repeatedly encoded
+    HTML entities.
     """
 
-    # Important:
-    # Decode entities BEFORE removing tags.
-    #
-    # Example:
-    #   &lt;a href="..."&gt;@AI_Anchor&lt;/a&gt; 開始
-    #
-    # becomes:
-    #   <a href="...">@AI_Anchor</a> 開始
-    #
-    # and then:
-    #   @AI_Anchor 開始
-    #
-    text = unescape(content)
+    text = content
 
-    text = re.sub(
-        r"<[^>]*>",
-        "",
-        text,
-    )
+    for _ in range(3):
+        decoded = unescape(text)
+
+        stripped = re.sub(
+            r"<[^>]*>",
+            "",
+            decoded,
+        )
+
+        if stripped == text:
+            text = stripped
+            break
+
+        text = stripped
 
     return text
 
