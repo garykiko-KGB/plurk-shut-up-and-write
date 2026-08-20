@@ -1,11 +1,11 @@
 import unittest
 from datetime import datetime
 
-from activity import (
+from core.activity import (
     Activity,
     ActivityStatus,
 )
-from command_parser import ActivityConfig
+from parsers.command_parser import ActivityConfig
 
 
 class TestActivity(unittest.TestCase):
