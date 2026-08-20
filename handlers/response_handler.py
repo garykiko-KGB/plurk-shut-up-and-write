@@ -5,17 +5,23 @@ from dataclasses import dataclass
 from html import unescape
 from typing import Any
 
-from core.activity import ActivityConfig
-from parsers.command_parser import parse_command
+from parsers.command_parser import (
+    CommandParseError,
+    parse_command,
+)
+from parsers.command_parser import (
+    ActivityConfig,
+)
 
 
 @dataclass(frozen=True)
 class ParsedResponse:
     """
-    Normalized command extracted from a Plurk realtime event.
+    Normalized activity command extracted from a Plurk realtime event.
 
-    response_id is None when the command came from a new Plurk
-    instead of a response.
+    response_id:
+        - int for a command coming from a Plurk response.
+        - None for a command coming from a new Plurk.
     """
 
     user_id: int
@@ -35,18 +41,19 @@ def handle_realtime_event(
     bot_name: str = "AI_Anchor",
 ) -> list[ParsedResponse]:
     """
-    Parse a Plurk realtime payload.
+    Parse one Plurk realtime payload.
 
     Supported command sources:
         - new_plurk
         - new_response
 
-    Ignored:
-        - update_notification
-        - unknown event types
-        - malformed data
-        - messages without the bot mention
-        - messages whose command cannot be parsed
+    Other realtime events are ignored.
+
+    The command parser remains responsible for:
+        - validating the @bot mention
+        - removing the mention
+        - parsing the actual command
+        - validating activity parameters
     """
 
     if not isinstance(event, dict):
@@ -57,7 +64,7 @@ def handle_realtime_event(
     if not isinstance(data, list):
         return []
 
-    parsed_responses: list[ParsedResponse] = []
+    results: list[ParsedResponse] = []
 
     for item in data:
         parsed = _parse_event_item(
@@ -66,9 +73,9 @@ def handle_realtime_event(
         )
 
         if parsed is not None:
-            parsed_responses.append(parsed)
+            results.append(parsed)
 
-    return parsed_responses
+    return results
 
 
 # ------------------------------------------------------
@@ -80,20 +87,22 @@ def _parse_event_item(
     item: Any,
     bot_name: str,
 ) -> ParsedResponse | None:
-    """Classify and parse one realtime data item."""
+    """
+    Classify and parse one realtime data item.
+
+    new_response is checked first because it contains a nested
+    "response" object.
+    """
 
     if not isinstance(item, dict):
         return None
 
-    # Plurk realtime events representing a response normally
-    # contain a nested "response" object.
     if isinstance(item.get("response"), dict):
         return _parse_new_response(
             item,
             bot_name,
         )
 
-    # New Plurks contain their own content/user/plurk data.
     if _looks_like_new_plurk(item):
         return _parse_new_plurk(
             item,
@@ -107,36 +116,54 @@ def _looks_like_new_plurk(
     item: dict[str, Any],
 ) -> bool:
     """
-    Determine whether an event item looks like a new Plurk.
+    Identify a new Plurk payload without relying on an explicit
+    event-type field.
 
-    update_notification and other event types do not normally carry
-    content_raw/content together with a user_id and plurk_id.
+    A normal new Plurk carries content plus user and Plurk IDs.
     """
 
     has_content = (
-        isinstance(item.get("content_raw"), str)
-        or isinstance(item.get("content"), str)
+        isinstance(
+            item.get("content_raw"),
+            str,
+        )
+        or isinstance(
+            item.get("content"),
+            str,
+        )
     )
 
-    has_user = (
-        isinstance(item.get("user_id"), int)
-        or isinstance(item.get("owner_id"), int)
+    has_user_id = (
+        isinstance(
+            item.get("user_id"),
+            int,
+        )
+        or isinstance(
+            item.get("owner_id"),
+            int,
+        )
     )
 
-    has_plurk = (
-        isinstance(item.get("plurk_id"), int)
-        or isinstance(item.get("id"), int)
+    has_plurk_id = (
+        isinstance(
+            item.get("plurk_id"),
+            int,
+        )
+        or isinstance(
+            item.get("id"),
+            int,
+        )
     )
 
     return (
         has_content
-        and has_user
-        and has_plurk
+        and has_user_id
+        and has_plurk_id
     )
 
 
 # ------------------------------------------------------
-# new_plurk
+# New Plurk
 # ------------------------------------------------------
 
 
@@ -144,15 +171,19 @@ def _parse_new_plurk(
     item: dict[str, Any],
     bot_name: str,
 ) -> ParsedResponse | None:
-    """Parse a command contained in a new Plurk."""
+    """Parse a command from a newly-created Plurk."""
 
     content_raw = _get_content(item)
 
     if not content_raw:
         return None
 
-    if not _mentions_bot(
-        content_raw,
+    normalized_content = _strip_html(
+        content_raw
+    ).strip()
+
+    if not _has_expected_bot_mention(
+        normalized_content,
         bot_name,
     ):
         return None
@@ -164,7 +195,7 @@ def _parse_new_plurk(
         return None
 
     config = _parse_command_content(
-        content_raw,
+        normalized_content,
         bot_name,
     )
 
@@ -175,13 +206,13 @@ def _parse_new_plurk(
         user_id=user_id,
         plurk_id=plurk_id,
         response_id=None,
-        content_raw=content_raw,
+        content_raw=normalized_content,
         config=config,
     )
 
 
 # ------------------------------------------------------
-# new_response
+# New Response
 # ------------------------------------------------------
 
 
@@ -189,7 +220,7 @@ def _parse_new_response(
     item: dict[str, Any],
     bot_name: str,
 ) -> ParsedResponse | None:
-    """Parse a command contained in a Plurk response."""
+    """Parse a command from a newly-created response."""
 
     response = item.get("response")
 
@@ -201,19 +232,19 @@ def _parse_new_response(
     if not content_raw:
         return None
 
-    if not _mentions_bot(
-        content_raw,
+    normalized_content = _strip_html(
+        content_raw
+    ).strip()
+
+    if not _has_expected_bot_mention(
+        normalized_content,
         bot_name,
     ):
         return None
 
     user_id = _get_user_id(response)
-
     plurk_id = _get_plurk_id(item)
-
-    response_id = _get_response_id(
-        response
-    )
+    response_id = _get_response_id(response)
 
     if (
         user_id is None
@@ -223,7 +254,7 @@ def _parse_new_response(
         return None
 
     config = _parse_command_content(
-        content_raw,
+        normalized_content,
         bot_name,
     )
 
@@ -234,13 +265,13 @@ def _parse_new_response(
         user_id=user_id,
         plurk_id=plurk_id,
         response_id=response_id,
-        content_raw=content_raw,
+        content_raw=normalized_content,
         config=config,
     )
 
 
 # ------------------------------------------------------
-# Command parsing
+# Command parser bridge
 # ------------------------------------------------------
 
 
@@ -249,28 +280,26 @@ def _parse_command_content(
     bot_name: str,
 ) -> ActivityConfig | None:
     """
-    Remove the bot mention and pass the remaining command
-    to command_parser.
+    Pass the COMPLETE command text to command_parser.
+
+    Example:
+        @AI_Anchor 開始
+
+    command_parser itself removes @AI_Anchor and parses the
+    remaining command.
     """
-
-    clean_content = _strip_html(
-        content_raw
-    )
-
-    command_text = _remove_bot_mention(
-        clean_content,
-        bot_name,
-    ).strip()
-
-    if not command_text:
-        return None
 
     try:
         return parse_command(
-            command_text
+            content_raw,
+            bot_name=bot_name,
         )
 
-    except (ValueError, TypeError):
+    except (
+        CommandParseError,
+        ValueError,
+        TypeError,
+    ):
         return None
 
 
@@ -279,55 +308,29 @@ def _parse_command_content(
 # ------------------------------------------------------
 
 
-def _mentions_bot(
+def _has_expected_bot_mention(
     content: str,
     bot_name: str,
 ) -> bool:
     """
-    Check whether the content mentions the bot.
+    Check whether the command starts with the bot mention.
 
-    Supports normal text:
-        @AI_Anchor 開始
+    This deliberately follows command_parser's contract:
+        ^@<bot_name>\\s*
 
-    and HTML-containing Plurk content:
-        <a ...>@AI_Anchor</a> 開始
+    The actual parsing is still delegated to command_parser.
     """
 
-    clean_content = _strip_html(
-        content
-    )
-
     pattern = (
-        r"@"
-        + re.escape(bot_name)
-        + r"\b"
+        rf"^@{re.escape(bot_name)}\s*"
     )
 
-    return re.search(
-        pattern,
-        clean_content,
-        flags=re.IGNORECASE,
-    ) is not None
-
-
-def _remove_bot_mention(
-    content: str,
-    bot_name: str,
-) -> str:
-    """Remove the bot mention from command text."""
-
-    pattern = (
-        r"@"
-        + re.escape(bot_name)
-        + r"\b"
-    )
-
-    return re.sub(
-        pattern,
-        "",
-        content,
-        count=1,
-        flags=re.IGNORECASE,
+    return (
+        re.match(
+            pattern,
+            content,
+        )
+        is not None
     )
 
 
@@ -340,9 +343,10 @@ def _strip_html(
     content: str,
 ) -> str:
     """
-    Convert Plurk's HTML content into plain text.
+    Remove simple HTML tags and decode HTML entities.
 
-    Only HTML tags are removed; character entities are unescaped.
+    Plurk may expose HTML in content fields. The parser receives
+    normalized text rather than HTML markup.
     """
 
     text = re.sub(
@@ -357,18 +361,24 @@ def _strip_html(
 def _get_content(
     item: dict[str, Any],
 ) -> str | None:
-    """Extract raw content from a Plurk event."""
+    """Get raw content from a Plurk event object."""
 
     content_raw = item.get(
         "content_raw"
     )
 
-    if isinstance(content_raw, str):
+    if isinstance(
+        content_raw,
+        str,
+    ):
         return content_raw
 
     content = item.get("content")
 
-    if isinstance(content, str):
+    if isinstance(
+        content,
+        str,
+    ):
         return content
 
     return None
@@ -382,16 +392,28 @@ def _get_content(
 def _get_user_id(
     item: dict[str, Any],
 ) -> int | None:
-    """Extract the user ID from an event."""
+    """
+    Extract the user ID.
+
+    Supported fields:
+        - user_id
+        - owner_id
+    """
 
     value = item.get("user_id")
 
-    if isinstance(value, int):
+    if isinstance(
+        value,
+        int,
+    ):
         return value
 
     value = item.get("owner_id")
 
-    if isinstance(value, int):
+    if isinstance(
+        value,
+        int,
+    ):
         return value
 
     return None
@@ -400,16 +422,28 @@ def _get_user_id(
 def _get_plurk_id(
     item: dict[str, Any],
 ) -> int | None:
-    """Extract the Plurk ID from an event."""
+    """
+    Extract the Plurk ID.
+
+    Supported fields:
+        - plurk_id
+        - id
+    """
 
     value = item.get("plurk_id")
 
-    if isinstance(value, int):
+    if isinstance(
+        value,
+        int,
+    ):
         return value
 
     value = item.get("id")
 
-    if isinstance(value, int):
+    if isinstance(
+        value,
+        int,
+    ):
         return value
 
     return None
@@ -418,16 +452,30 @@ def _get_plurk_id(
 def _get_response_id(
     response: dict[str, Any],
 ) -> int | None:
-    """Extract the response ID."""
+    """
+    Extract the response ID.
+
+    Supported fields:
+        - id
+        - response_id
+    """
 
     value = response.get("id")
 
-    if isinstance(value, int):
+    if isinstance(
+        value,
+        int,
+    ):
         return value
 
-    value = response.get("response_id")
+    value = response.get(
+        "response_id"
+    )
 
-    if isinstance(value, int):
+    if isinstance(
+        value,
+        int,
+    ):
         return value
 
     return None
