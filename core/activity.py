@@ -23,6 +23,10 @@ class Activity:
     # --------------------------------------------------
 
     owner_user_id: int
+
+    # Display name of the activity owner on Plurk.
+    owner_nick_name: str
+
     source_plurk_id: int
 
     # The Plurk created by the bot for this activity.
