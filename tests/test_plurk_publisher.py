@@ -2,7 +2,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
-from core.activity import Activity, ActivityConfig
+from core.activity import Activity, ActivityConfig, ActivityStatus
+from core.activity_scheduler import ActivityTransition
 from services.plurk_publisher import (
     PlurkPublisher,
     PublishedActivity,
@@ -185,17 +186,13 @@ class TestPlurkPublisher(unittest.TestCase):
         self,
     ) -> None:
         with self.assertRaises(TypeError):
-            self.publisher.build_plurk_url(
-                "123"
-            )
+            self.publisher.build_plurk_url("123")
 
     def test_build_plurk_url_rejects_bool(
         self,
     ) -> None:
         with self.assertRaises(TypeError):
-            self.publisher.build_plurk_url(
-                True
-            )
+            self.publisher.build_plurk_url(True)
 
     def test_build_plurk_url_rejects_zero(
         self,
@@ -288,9 +285,7 @@ class TestPlurkPublisher(unittest.TestCase):
         self,
     ) -> None:
         with self.assertRaises(ValueError):
-            self.publisher._extract_plurk_id(
-                {}
-            )
+            self.publisher._extract_plurk_id({})
 
     def test_extract_plurk_id_rejects_zero(
         self,
@@ -470,6 +465,221 @@ class TestPlurkPublisher(unittest.TestCase):
         )
 
     # --------------------------------------------------
+    # Transition content
+    # --------------------------------------------------
+
+    def test_build_start_work_content(
+        self,
+    ) -> None:
+        self.activity.status = (
+            ActivityStatus.WORKING
+        )
+        self.activity.current_round = 1
+
+        content = (
+            self.publisher.build_transition_content(
+                self.activity,
+                ActivityTransition.START_WORK,
+            )
+        )
+
+        self.assertEqual(
+            content,
+            (
+                "🟢 第 1 回合開始！\n"
+                "現在開始寫作 25 分鐘。"
+            ),
+        )
+
+    def test_build_start_break_content(
+        self,
+    ) -> None:
+        self.activity.status = (
+            ActivityStatus.BREAK
+        )
+        self.activity.current_round = 1
+
+        content = (
+            self.publisher.build_transition_content(
+                self.activity,
+                ActivityTransition.START_BREAK,
+            )
+        )
+
+        self.assertEqual(
+            content,
+            (
+                "🔵 第 1 回合結束。\n"
+                "休息 5 分鐘。"
+            ),
+        )
+
+    def test_build_finish_content(
+        self,
+    ) -> None:
+        self.activity.status = (
+            ActivityStatus.FINISHED
+        )
+        self.activity.current_round = 4
+
+        content = (
+            self.publisher.build_transition_content(
+                self.activity,
+                ActivityTransition.FINISH,
+            )
+        )
+
+        self.assertEqual(
+            content,
+            (
+                "🏁 活動完成！\n"
+                "發起人 ID：1001\n"
+                "共完成 4 回合。"
+            ),
+        )
+
+    def test_build_transition_content_rejects_unknown_transition(
+        self,
+    ) -> None:
+        with self.assertRaises(ValueError):
+            self.publisher.build_transition_content(
+                self.activity,
+                "unknown-transition",
+            )
+
+    # --------------------------------------------------
+    # Publish transition
+    # --------------------------------------------------
+
+    def test_publish_start_work_transition(
+        self,
+    ) -> None:
+        self.activity.activity_plurk_id = 3001
+        self.activity.status = (
+            ActivityStatus.WORKING
+        )
+        self.activity.current_round = 1
+
+        self.api.add_response.return_value = {
+            "id": 5001,
+            "plurk_id": 3001,
+        }
+
+        result = (
+            self.publisher.publish_transition(
+                self.activity,
+                ActivityTransition.START_WORK,
+            )
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "id": 5001,
+                "plurk_id": 3001,
+            },
+        )
+
+        self.api.add_response.assert_called_once_with(
+            plurk_id=3001,
+            content=(
+                "🟢 第 1 回合開始！\n"
+                "現在開始寫作 25 分鐘。"
+            ),
+            qualifier="says",
+        )
+
+    def test_publish_start_break_transition(
+        self,
+    ) -> None:
+        self.activity.activity_plurk_id = 3001
+        self.activity.status = (
+            ActivityStatus.BREAK
+        )
+        self.activity.current_round = 1
+
+        self.api.add_response.return_value = {
+            "id": 5002,
+            "plurk_id": 3001,
+        }
+
+        result = (
+            self.publisher.publish_transition(
+                self.activity,
+                ActivityTransition.START_BREAK,
+            )
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "id": 5002,
+                "plurk_id": 3001,
+            },
+        )
+
+        self.api.add_response.assert_called_once_with(
+            plurk_id=3001,
+            content=(
+                "🔵 第 1 回合結束。\n"
+                "休息 5 分鐘。"
+            ),
+            qualifier="says",
+        )
+
+    def test_publish_finish_transition(
+        self,
+    ) -> None:
+        self.activity.activity_plurk_id = 3001
+        self.activity.status = (
+            ActivityStatus.FINISHED
+        )
+        self.activity.current_round = 4
+
+        self.api.add_response.return_value = {
+            "id": 5003,
+            "plurk_id": 3001,
+        }
+
+        result = (
+            self.publisher.publish_transition(
+                self.activity,
+                ActivityTransition.FINISH,
+            )
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "id": 5003,
+                "plurk_id": 3001,
+            },
+        )
+
+        self.api.add_response.assert_called_once_with(
+            plurk_id=3001,
+            content=(
+                "🏁 活動完成！\n"
+                "發起人 ID：1001\n"
+                "共完成 4 回合。"
+            ),
+            qualifier="says",
+        )
+
+    def test_publish_transition_requires_activity_plurk(
+        self,
+    ) -> None:
+        self.activity.activity_plurk_id = None
+
+        with self.assertRaises(ValueError):
+            self.publisher.publish_transition(
+                self.activity,
+                ActivityTransition.START_WORK,
+            )
+
+        self.api.add_response.assert_not_called()
+
+    # --------------------------------------------------
     # Publish full activity
     # --------------------------------------------------
 
@@ -558,7 +768,9 @@ class TestPlurkPublisher(unittest.TestCase):
         )
 
         self.assertIn(
-            self.publisher.build_plurk_url(3001),
+            self.publisher.build_plurk_url(
+                3001
+            ),
             response_content,
         )
 
@@ -569,8 +781,10 @@ class TestPlurkPublisher(unittest.TestCase):
     def test_activity_plurk_failure_prevents_source_reply(
         self,
     ) -> None:
-        self.api.add_plurk.side_effect = RuntimeError(
-            "plurk creation failed"
+        self.api.add_plurk.side_effect = (
+            RuntimeError(
+                "plurk creation failed"
+            )
         )
 
         with self.assertRaises(RuntimeError):
@@ -591,8 +805,10 @@ class TestPlurkPublisher(unittest.TestCase):
             "plurk_id": 3001,
         }
 
-        self.api.add_response.side_effect = RuntimeError(
-            "response failed"
+        self.api.add_response.side_effect = (
+            RuntimeError(
+                "response failed"
+            )
         )
 
         with self.assertRaises(RuntimeError):
@@ -604,6 +820,29 @@ class TestPlurkPublisher(unittest.TestCase):
             self.activity.activity_plurk_id,
             3001,
         )
+
+    def test_transition_publish_failure_propagates(
+        self,
+    ) -> None:
+        self.activity.activity_plurk_id = 3001
+        self.activity.status = (
+            ActivityStatus.WORKING
+        )
+        self.activity.current_round = 1
+
+        self.api.add_response.side_effect = (
+            RuntimeError(
+                "transition publish failed"
+            )
+        )
+
+        with self.assertRaises(RuntimeError):
+            self.publisher.publish_transition(
+                self.activity,
+                ActivityTransition.START_WORK,
+            )
+
+        self.api.add_response.assert_called_once()
 
     # --------------------------------------------------
     # Full content consistency
