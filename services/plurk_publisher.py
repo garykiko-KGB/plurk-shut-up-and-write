@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from datetime import timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -72,9 +71,7 @@ class PlurkPublisher:
             activity_response
         )
 
-        activity.activity_plurk_id = (
-            activity_plurk_id
-        )
+        activity.activity_plurk_id = activity_plurk_id
 
         activity_url = self.build_plurk_url(
             activity_plurk_id
@@ -119,7 +116,8 @@ class PlurkPublisher:
         """
         Build the initial activity Plurk content.
 
-        The displayed start time is converted from UTC to Taiwan time.
+        The displayed start time is converted from UTC
+        to Taiwan local time.
         """
 
         config = activity.config
@@ -135,11 +133,12 @@ class PlurkPublisher:
         return (
             "📝 Shut Up & Write! 寫作活動\n"
             "\n"
-            f"工作時間：{config.work_time} 分鐘\n"
-            f"休息時間：{config.break_time} 分鐘\n"
-            f"回合數：{config.rounds} 回合\n"
-            f"準備時間：{config.prepare_time} 分鐘\n"
-            f"預計開始：{start_text}\n"
+            f"👤 發起人 ID：{activity.owner_user_id}\n"
+            f"⏱ 工作時間：{config.work_time} 分鐘\n"
+            f"☕ 休息時間：{config.break_time} 分鐘\n"
+            f"🔁 回合數：{config.rounds} 回合\n"
+            f"⏳ 準備時間：{config.prepare_time} 分鐘\n"
+            f"🕒 預計開始：{start_text}\n"
             "\n"
             "想一起寫的人可以加入；"
             "想安靜做事也完全沒問題。\n"
@@ -179,6 +178,7 @@ class PlurkPublisher:
 
         return (
             "活動已建立！\n"
+            f"👤 發起人 ID：{activity.owner_user_id}\n"
             f"⏱ {config.work_time} 分鐘工作 / "
             f"{config.break_time} 分鐘休息\n"
             f"🔁 共 {config.rounds} 回合\n"
@@ -198,12 +198,18 @@ class PlurkPublisher:
         """
         Build a web URL from the numeric Plurk ID.
 
-        Plurk web URLs use the base-36 representation of plurk_id.
+        Plurk web URLs use the base-36 representation
+        of plurk_id.
         """
 
         if not isinstance(plurk_id, int):
             raise TypeError(
                 "plurk_id 必須是 int。"
+            )
+
+        if isinstance(plurk_id, bool):
+            raise TypeError(
+                "plurk_id 必須是整數，不接受 bool。"
             )
 
         if plurk_id <= 0:
@@ -217,8 +223,10 @@ class PlurkPublisher:
         )
 
     @staticmethod
-    def _to_base36(value: int) -> str:
-        """Convert a positive integer to lowercase base-36."""
+    def _to_base36(
+        value: int,
+    ) -> str:
+        """Convert a non-negative integer to lowercase base-36."""
 
         if value < 0:
             raise ValueError(
@@ -267,8 +275,13 @@ class PlurkPublisher:
 
         if isinstance(value, int):
             plurk_id = value
-        elif isinstance(value, str) and value.isdigit():
+
+        elif (
+            isinstance(value, str)
+            and value.isdigit()
+        ):
             plurk_id = int(value)
+
         else:
             raise ValueError(
                 "Plurk API 回應缺少有效的 plurk_id。"
@@ -276,7 +289,8 @@ class PlurkPublisher:
 
         if plurk_id <= 0:
             raise ValueError(
-                "Plurk API 回應的 plurk_id 必須是正整數。"
+                "Plurk API 回應的 plurk_id "
+                "必須是正整數。"
             )
 
         return plurk_id
@@ -292,10 +306,14 @@ class PlurkPublisher:
         """
         Convert an aware datetime to Taiwan local time.
 
-        Internal Activity timestamps are stored as timezone-aware UTC.
+        Internal Activity timestamps are stored as
+        timezone-aware UTC datetimes.
         """
 
-        if value.tzinfo is None or value.utcoffset() is None:
+        if (
+            value.tzinfo is None
+            or value.utcoffset() is None
+        ):
             raise ValueError(
                 "Activity 時間必須是 timezone-aware datetime。"
             )
