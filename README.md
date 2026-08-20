@@ -68,7 +68,7 @@ Bot 會建立一則獨立的活動 Plurk，並在原本的呼叫訊息下回覆�
 
 ## 目錄圖
 
-"""
+```text
 plurk-shut-up-and-write/
 │
 ├── core/
@@ -110,4 +110,4 @@ plurk-shut-up-and-write/
 ├── requirements.txt
 ├── LICENSE
 └── .gitignore
-"""
+```
