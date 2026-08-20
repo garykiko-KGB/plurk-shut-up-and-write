@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any
 
@@ -6,6 +7,8 @@ from requests_oauthlib import OAuth1
 
 
 PLURK_API_BASE = "https://www.plurk.com/APP"
+
+logger = logging.getLogger(__name__)
 
 
 class PlurkAPIError(RuntimeError):
@@ -94,9 +97,27 @@ class PlurkAPI:
 
         GET parameters are sent through ``params``.
         POST parameters are sent through form data.
+
+        Temporary debug logging is enabled for
+        ``/Timeline/plurkAdd`` so the actual content sent to
+        Plurk and the response returned by Plurk can be inspected.
         """
 
         url = f"{PLURK_API_BASE}{endpoint}"
+
+        debug_plurk_add = (
+            method.upper() == "POST"
+            and endpoint == "/Timeline/plurkAdd"
+        )
+
+        if debug_plurk_add:
+            logger.info(
+                "Plurk API Request: "
+                "method=%s endpoint=%s data=%s",
+                method,
+                endpoint,
+                data,
+            )
 
         try:
             response = requests.request(
@@ -108,9 +129,26 @@ class PlurkAPI:
                 timeout=30,
             )
         except requests.RequestException as exc:
+            if debug_plurk_add:
+                logger.error(
+                    "Plurk API Request failed: "
+                    "method=%s endpoint=%s error=%s",
+                    method,
+                    endpoint,
+                    exc,
+                )
+
             raise PlurkAPIError(
                 f"Plurk API 連線失敗：{exc}"
             ) from exc
+
+        if debug_plurk_add:
+            logger.info(
+                "Plurk API Response: "
+                "status=%s body=%s",
+                response.status_code,
+                response.text,
+            )
 
         if not response.ok:
             raise PlurkAPIError(
@@ -214,7 +252,7 @@ class PlurkAPI:
         """
         Create a new Plurk.
 
-        Defaults to:
+        Defaults:
             qualifier = "says"
             lang = "tr_ch" (Traditional Chinese)
 
