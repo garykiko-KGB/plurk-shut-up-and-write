@@ -1,5 +1,11 @@
+import json
 import logging
+import os
 import threading
+from http.server import (
+    BaseHTTPRequestHandler,
+    ThreadingHTTPServer,
+)
 from typing import Any
 
 from core.activity_manager import ActivityManager
@@ -20,6 +26,13 @@ from services.plurk_realtime import (
 BOT_NAME = "AI_Anchor"
 SCHEDULER_INTERVAL_SECONDS = 1.0
 
+# Render provides PORT for Web Services.
+# 10000 is used as a local/default fallback.
+HEALTH_HOST = "0.0.0.0"
+HEALTH_PORT = int(
+    os.getenv("PORT", "10000")
+)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,12 +48,123 @@ logger = logging.getLogger(
 )
 
 
+class HealthRequestHandler(
+    BaseHTTPRequestHandler
+):
+    """Minimal HTTP health endpoint for Render/UptimeRobot."""
+
+    def do_GET(self) -> None:
+        """Handle GET requests."""
+
+        if self.path != "/health":
+            self._send_json(
+                status_code=404,
+                payload={
+                    "status": "not_found",
+                },
+            )
+            return
+
+        self._send_json(
+            status_code=200,
+            payload={
+                "status": "ok",
+                "service": "plurk-shut-up-and-write",
+            },
+        )
+
+    def do_HEAD(self) -> None:
+        """Handle HEAD requests."""
+
+        if self.path != "/health":
+            self.send_response(404)
+            self.send_header(
+                "Content-Length",
+                "0",
+            )
+            self.end_headers()
+            return
+
+        body = json.dumps(
+            {
+                "status": "ok",
+                "service": "plurk-shut-up-and-write",
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+        self.send_response(200)
+        self.send_header(
+            "Content-Type",
+            "application/json; charset=utf-8",
+        )
+        self.send_header(
+            "Content-Length",
+            str(len(body)),
+        )
+        self.end_headers()
+
+    def log_message(
+        self,
+        format: str,
+        *args: Any,
+    ) -> None:
+        """
+        Disable BaseHTTPRequestHandler's default stdout logging.
+
+        Application logging is handled by the project's logger instead.
+        """
+
+        logger.debug(
+            "Health HTTP: " + format,
+            *args,
+        )
+
+    def _send_json(
+        self,
+        status_code: int,
+        payload: dict[str, Any],
+    ) -> None:
+        """Send a JSON response."""
+
+        body = json.dumps(
+            payload,
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+        self.send_response(
+            status_code
+        )
+
+        self.send_header(
+            "Content-Type",
+            "application/json; charset=utf-8",
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(len(body)),
+        )
+
+        self.send_header(
+            "Cache-Control",
+            "no-store",
+        )
+
+        self.end_headers()
+
+        self.wfile.write(body)
+
+
 class ShutUpAndWriteApp:
     """
     Application entry point for Shut Up & Write!.
 
     This class assembles the application components and coordinates
     their runtime execution.
+
+    It also exposes a minimal HTTP health endpoint so the application
+    can run as a Render Web Service and be monitored by UptimeRobot.
 
     It does not contain command parsing, Activity state logic,
     Plurk API implementation, or publishing-format logic.
@@ -52,11 +176,16 @@ class ShutUpAndWriteApp:
         scheduler_interval: float = (
             SCHEDULER_INTERVAL_SECONDS
         ),
+        health_host: str = HEALTH_HOST,
+        health_port: int = HEALTH_PORT,
     ) -> None:
         self.bot_name = bot_name
         self.scheduler_interval = (
             scheduler_interval
         )
+
+        self.health_host = health_host
+        self.health_port = health_port
 
         # --------------------------------------------------
         # Infrastructure
@@ -123,6 +252,18 @@ class ShutUpAndWriteApp:
 
         self._stop_event = threading.Event()
 
+        self._health_server: (
+            ThreadingHTTPServer | None
+        ) = None
+
+        self._health_thread = (
+            threading.Thread(
+                target=self._run_health_server,
+                name="health-server",
+                daemon=True,
+            )
+        )
+
         self._realtime_thread = (
             threading.Thread(
                 target=self._run_realtime,
@@ -155,6 +296,13 @@ class ShutUpAndWriteApp:
             self.bot_name,
         )
 
+        logger.info(
+            "Health endpoint：http://%s:%s/health",
+            self.health_host,
+            self.health_port,
+        )
+
+        self._health_thread.start()
         self._realtime_thread.start()
         self._scheduler_thread.start()
 
@@ -173,16 +321,84 @@ class ShutUpAndWriteApp:
             self.stop()
 
     def stop(self) -> None:
-        """Stop application threads."""
+        """Stop all application threads and servers."""
 
-        if self._stop_event.is_set():
-            return
+        already_stopped = (
+            self._stop_event.is_set()
+        )
 
         self._stop_event.set()
 
-        logger.info(
-            "Shut Up & Write! 已停止。"
-        )
+        if self._health_server is not None:
+            try:
+                self._health_server.shutdown()
+            except Exception:
+                logger.exception(
+                    "停止 Health HTTP server 失敗。"
+                )
+
+            self._health_server.server_close()
+            self._health_server = None
+
+        if not already_stopped:
+            logger.info(
+                "Shut Up & Write! 已停止。"
+            )
+
+    # --------------------------------------------------
+    # Health server
+    # --------------------------------------------------
+
+    def _run_health_server(self) -> None:
+        """Run the HTTP health endpoint."""
+
+        try:
+            server = ThreadingHTTPServer(
+                (
+                    self.health_host,
+                    self.health_port,
+                ),
+                HealthRequestHandler,
+            )
+
+            self._health_server = server
+
+            logger.info(
+                "Health HTTP server 啟動："
+                "0.0.0.0:%s",
+                self.health_port,
+            )
+
+            while not self._stop_event.is_set():
+                server.handle_request()
+
+        except OSError:
+            logger.exception(
+                "Health HTTP server 啟動失敗："
+                "host=%s port=%s",
+                self.health_host,
+                self.health_port,
+            )
+
+            self._stop_event.set()
+
+        except Exception:
+            logger.exception(
+                "Health HTTP server 發生未預期錯誤。"
+            )
+
+            self._stop_event.set()
+
+        finally:
+            if self._health_server is not None:
+                try:
+                    self._health_server.server_close()
+                except Exception:
+                    logger.exception(
+                        "關閉 Health HTTP server 失敗。"
+                    )
+
+                self._health_server = None
 
     # --------------------------------------------------
     # Realtime thread
@@ -358,9 +574,7 @@ class ShutUpAndWriteApp:
         activity,
         transition: ActivityTransition,
     ) -> None:
-        """
-        Publish one activity transition to the activity Plurk.
-        """
+        """Publish one activity transition to the activity Plurk."""
 
         try:
             response = (
