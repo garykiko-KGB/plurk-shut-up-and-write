@@ -28,4 +28,4 @@ jobs:
           PLURK_APP_SECRET: ${{ secrets.PLURK_APP_SECRET }}
           PLURK_TOKEN: ${{ secrets.PLURK_TOKEN }}
           PLURK_TOKEN_SECRET: ${{ secrets.PLURK_TOKEN_SECRET }}
-        run: python realtime_test.py
+        run: python tools/realtime_test.py
