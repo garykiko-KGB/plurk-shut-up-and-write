@@ -6,7 +6,7 @@ from html import unescape
 from typing import Any
 
 from core.activity import ActivityConfig
-from core.command_parser import parse_command
+from parsers.command_parser import parse_command
 
 
 @dataclass(frozen=True)
