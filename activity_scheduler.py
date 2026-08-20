@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from activity import Activity, ActivityStatus
@@ -21,33 +21,31 @@ class ActivityScheduler:
         - store activities
         - send Plurk API requests
         - sleep or block
+
+    All internal timestamps are expected to be timezone-aware.
     """
 
     @staticmethod
     def _now() -> datetime:
-        """Return the current local time."""
+        """Return the current UTC time."""
 
-        return datetime.now()
+        return datetime.now(timezone.utc)
 
     @staticmethod
-    def _get_start_time(
-        activity: Activity,
-        now: datetime,
-    ) -> datetime:
+    def _validate_datetime(value: datetime) -> datetime:
         """
-        Determine the activity's actual starting point.
+        Validate that a datetime is timezone-aware.
 
-        Normally, Activity.created_at is the source of truth.
-
-        If a caller supplies a simulated time earlier than created_at,
-        use the supplied time instead. This allows deterministic tests
-        with historical or simulated timestamps.
+        Naive datetimes are rejected to prevent accidental mixing of
+        UTC and local time.
         """
 
-        if activity.created_at <= now:
-            return activity.created_at
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(
+                "ActivityScheduler 需要 timezone-aware datetime。"
+            )
 
-        return now
+        return value
 
     def initialize(
         self,
@@ -58,7 +56,8 @@ class ActivityScheduler:
         Initialize the activity's first transition time.
 
         A newly created activity starts in PREPARING.
-        The preparation phase begins at the activity's creation time.
+
+        The preparation phase always begins at activity.created_at.
         """
 
         if activity.status != ActivityStatus.PREPARING:
@@ -67,17 +66,27 @@ class ActivityScheduler:
         if activity.phase_started_at is not None:
             return
 
-        current_time = now or self._now()
-
-        start_time = self._get_start_time(
-            activity,
-            current_time,
+        current_time = (
+            self._now()
+            if now is None
+            else self._validate_datetime(now)
         )
 
-        activity.phase_started_at = start_time
+        created_at = self._validate_datetime(
+            activity.created_at
+        )
+
+        # current_time is intentionally not used as the activity's
+        # starting point. The activity timeline begins at created_at.
+        #
+        # current_time is evaluated here so callers still get immediate
+        # validation of the supplied timestamp.
+        _ = current_time
+
+        activity.phase_started_at = created_at
 
         activity.next_transition_at = (
-            start_time
+            created_at
             + timedelta(
                 minutes=activity.config.prepare_time
             )
@@ -97,7 +106,11 @@ class ActivityScheduler:
         scheduler has not been checked for a while.
         """
 
-        current_time = now or self._now()
+        current_time = (
+            self._now()
+            if now is None
+            else self._validate_datetime(now)
+        )
 
         self.initialize(
             activity,
@@ -155,19 +168,19 @@ class ActivityScheduler:
     ) -> ActivityTransition:
         """Move from PREPARING to the first WORKING round."""
 
-        start_time = activity.next_transition_at
+        transition_time = activity.next_transition_at
 
-        if start_time is None:
+        if transition_time is None:
             raise RuntimeError(
                 "Activity has no transition time."
             )
 
         activity.status = ActivityStatus.WORKING
         activity.current_round = 1
-        activity.phase_started_at = start_time
+        activity.phase_started_at = transition_time
 
         activity.next_transition_at = (
-            start_time
+            transition_time
             + timedelta(
                 minutes=activity.config.work_time
             )
