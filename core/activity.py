@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
-from command_parser import ActivityConfig
+from parsers.command_parser import ActivityConfig
 
 
 class ActivityStatus(str, Enum):
