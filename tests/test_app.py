@@ -1,8 +1,12 @@
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from core.activity import Activity, ActivityConfig, ActivityStatus
+from core.activity import (
+    Activity,
+    ActivityConfig,
+    ActivityStatus,
+)
 from core.activity_scheduler import ActivityTransition
 from handlers.response_handler import ParsedResponse
 
@@ -14,11 +18,6 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         self.channel = {
             "comet_server": "https://comet.example.com/comet",
             "channel_name": "generic-test-channel",
-        }
-
-        self.api_profile = {
-            "id": 123456,
-            "nick_name": "AI_Anchor",
         }
 
     # --------------------------------------------------
@@ -65,9 +64,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
 
         mock_manager_class.assert_called_once_with()
         mock_scheduler_class.assert_called_once_with()
-
         mock_service_class.assert_called_once()
-
         mock_publisher_class.assert_called_once()
 
         self.assertEqual(
@@ -317,7 +314,6 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             RuntimeError("Plurk publish failed")
         )
 
-        # The handler catches publish exceptions.
         app._handle_parsed_response(
             parsed_response
         )
@@ -377,11 +373,13 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         )
 
     # --------------------------------------------------
-    # Realtime event with parsed response
+    # Realtime event with parsed responses
     # --------------------------------------------------
 
     @patch("app.handle_realtime_event")
-    @patch("app.ShutUpAndWriteApp._handle_parsed_response")
+    @patch(
+        "app.ShutUpAndWriteApp._handle_parsed_response"
+    )
     @patch("app.PlurkPublisher")
     @patch("app.ActivityService")
     @patch("app.ActivityScheduler")
@@ -514,6 +512,21 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             ],
         ]
 
+        mock_publisher = (
+            mock_publisher_class.return_value
+        )
+
+        mock_publisher.publish_transition.side_effect = [
+            {
+                "id": 5001,
+                "plurk_id": 3001,
+            },
+            {
+                "id": 5002,
+                "plurk_id": 3002,
+            },
+        ]
+
         app._advance_all_activities()
 
         self.assertEqual(
@@ -527,6 +540,21 @@ class TestShutUpAndWriteApp(unittest.TestCase):
 
         mock_service.advance_activity.assert_any_call(
             2002
+        )
+
+        self.assertEqual(
+            mock_publisher.publish_transition.call_count,
+            2,
+        )
+
+        mock_publisher.publish_transition.assert_any_call(
+            first,
+            ActivityTransition.START_WORK,
+        )
+
+        mock_publisher.publish_transition.assert_any_call(
+            second,
+            ActivityTransition.START_BREAK,
         )
 
     # --------------------------------------------------
@@ -578,11 +606,12 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             KeyError(2001)
         )
 
-        # Should not raise.
         app._advance_all_activities()
 
+        mock_publisher_class.return_value.publish_transition.assert_not_called()
+
     # --------------------------------------------------
-    # Scheduler transition logging
+    # Transition publishing
     # --------------------------------------------------
 
     @patch("app.logger")
@@ -592,7 +621,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
     @patch("app.ActivityManager")
     @patch("app.PlurkRealtime")
     @patch("app.PlurkAPI")
-    def test_handle_activity_transition_logs_transition(
+    def test_handle_activity_transition_publishes_transition(
         self,
         mock_api_class,
         mock_realtime_class,
@@ -611,21 +640,157 @@ class TestShutUpAndWriteApp(unittest.TestCase):
 
         app = ShutUpAndWriteApp()
 
-        app._handle_activity_transition(
+        activity = Activity(
+            owner_user_id=1001,
             source_plurk_id=2001,
+            activity_plurk_id=3001,
+        )
+
+        mock_publisher = (
+            mock_publisher_class.return_value
+        )
+
+        mock_publisher.publish_transition.return_value = {
+            "id": 5001,
+            "plurk_id": 3001,
+        }
+
+        app._handle_activity_transition(
+            activity=activity,
             transition=ActivityTransition.START_WORK,
+        )
+
+        mock_publisher.publish_transition.assert_called_once_with(
+            activity,
+            ActivityTransition.START_WORK,
         )
 
         mock_logger.info.assert_called_once()
 
-        call_args = (
-            mock_logger.info.call_args
-        )
+        call_args = mock_logger.info.call_args
 
         self.assertIn(
-            "Activity transition",
+            "Activity transition 已發布",
             call_args.args[0],
         )
+
+    # --------------------------------------------------
+    # Transition publishing failure
+    # --------------------------------------------------
+
+    @patch("app.logger")
+    @patch("app.PlurkPublisher")
+    @patch("app.ActivityService")
+    @patch("app.ActivityScheduler")
+    @patch("app.ActivityManager")
+    @patch("app.PlurkRealtime")
+    @patch("app.PlurkAPI")
+    def test_handle_activity_transition_handles_publish_failure(
+        self,
+        mock_api_class,
+        mock_realtime_class,
+        mock_manager_class,
+        mock_scheduler_class,
+        mock_service_class,
+        mock_publisher_class,
+        mock_logger,
+    ) -> None:
+        mock_api = mock_api_class.return_value
+        mock_api.get_user_channel.return_value = (
+            self.channel
+        )
+
+        from app import ShutUpAndWriteApp
+
+        app = ShutUpAndWriteApp()
+
+        activity = Activity(
+            owner_user_id=1001,
+            source_plurk_id=2001,
+            activity_plurk_id=3001,
+        )
+
+        mock_publisher = (
+            mock_publisher_class.return_value
+        )
+
+        mock_publisher.publish_transition.side_effect = (
+            RuntimeError(
+                "transition publish failed"
+            )
+        )
+
+        # The application should catch the error rather than
+        # allowing it to kill the scheduler thread.
+        app._handle_activity_transition(
+            activity=activity,
+            transition=ActivityTransition.START_WORK,
+        )
+
+        mock_publisher.publish_transition.assert_called_once_with(
+            activity,
+            ActivityTransition.START_WORK,
+        )
+
+        mock_logger.exception.assert_called_once()
+
+    # --------------------------------------------------
+    # Transition without activity Plurk
+    # --------------------------------------------------
+
+    @patch("app.logger")
+    @patch("app.PlurkPublisher")
+    @patch("app.ActivityService")
+    @patch("app.ActivityScheduler")
+    @patch("app.ActivityManager")
+    @patch("app.PlurkRealtime")
+    @patch("app.PlurkAPI")
+    def test_handle_activity_transition_handles_missing_activity_plurk(
+        self,
+        mock_api_class,
+        mock_realtime_class,
+        mock_manager_class,
+        mock_scheduler_class,
+        mock_service_class,
+        mock_publisher_class,
+        mock_logger,
+    ) -> None:
+        mock_api = mock_api_class.return_value
+        mock_api.get_user_channel.return_value = (
+            self.channel
+        )
+
+        from app import ShutUpAndWriteApp
+
+        app = ShutUpAndWriteApp()
+
+        activity = Activity(
+            owner_user_id=1001,
+            source_plurk_id=2001,
+            activity_plurk_id=None,
+        )
+
+        mock_publisher = (
+            mock_publisher_class.return_value
+        )
+
+        mock_publisher.publish_transition.side_effect = (
+            ValueError(
+                "Activity 尚未建立活動噗"
+            )
+        )
+
+        app._handle_activity_transition(
+            activity=activity,
+            transition=ActivityTransition.START_WORK,
+        )
+
+        mock_publisher.publish_transition.assert_called_once_with(
+            activity,
+            ActivityTransition.START_WORK,
+        )
+
+        mock_logger.warning.assert_called_once()
 
     # --------------------------------------------------
     # Stop handling
@@ -664,6 +829,10 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         self.assertTrue(
             app._stop_event.is_set()
         )
+
+    # --------------------------------------------------
+    # Activity state helpers
+    # --------------------------------------------------
 
     def test_activity_scheduler_status_helpers_are_consistent(
         self,
