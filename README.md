@@ -65,3 +65,49 @@ Bot 會建立一則獨立的活動 Plurk，並在原本的呼叫訊息下回覆�
 ## 目前狀態
 
 🚧 開發中
+
+## 目錄圖
+
+"""
+plurk-shut-up-and-write/
+│
+├── core/
+│   ├── __init__.py
+│   ├── activity.py
+│   ├── activity_manager.py
+│   ├── activity_scheduler.py
+│   └── activity_service.py
+│
+├── handlers/
+│   ├── __init__.py
+│   └── response_handler.py
+│
+├── parsers/
+│   ├── __init__.py
+│   └── command_parser.py
+│
+├── services/
+│   ├── __init__.py
+│   ├── plurk_api.py
+│   ├── plurk_realtime.py
+│   └── plurk_publisher.py
+│
+├── tests/
+│   ├── __init__.py
+│   ├── test_activity.py
+│   ├── test_activity_manager.py
+│   ├── test_activity_scheduler.py
+│   ├── test_activity_service.py
+│   ├── test_command_parser.py
+│   ├── test_plurk_realtime.py
+│   └── test_response_handler.py
+│
+├── tools/
+│   └── realtime_test.py
+│
+├── README.md
+├── idea.md
+├── requirements.txt
+├── LICENSE
+└── .gitignore
+"""
