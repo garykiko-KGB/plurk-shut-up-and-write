@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from activity import Activity, ActivityConfig, ActivityStatus
 from activity_scheduler import (
@@ -14,18 +14,21 @@ class TestActivityScheduler(unittest.TestCase):
     def setUp(self) -> None:
         self.scheduler = ActivityScheduler()
 
+        # All test timestamps use timezone-aware UTC datetime.
         self.base_time = datetime(
             2026,
             8,
             20,
-            18,
+            10,
             0,
             0,
+            tzinfo=timezone.utc,
         )
 
         self.activity = Activity(
             owner_user_id=1001,
             source_plurk_id=2001,
+            created_at=self.base_time,
         )
 
     # --------------------------------------------------
@@ -60,7 +63,33 @@ class TestActivityScheduler(unittest.TestCase):
             ),
         )
 
-    def test_initialize_does_not_reinitialize_activity(self) -> None:
+    def test_initialize_uses_activity_created_at(
+        self,
+    ) -> None:
+        check_time = self.base_time + timedelta(
+            minutes=2
+        )
+
+        self.scheduler.initialize(
+            self.activity,
+            check_time,
+        )
+
+        self.assertEqual(
+            self.activity.phase_started_at,
+            self.base_time,
+        )
+
+        self.assertEqual(
+            self.activity.next_transition_at,
+            self.base_time + timedelta(
+                minutes=5
+            ),
+        )
+
+    def test_initialize_does_not_reinitialize_activity(
+        self,
+    ) -> None:
         self.scheduler.initialize(
             self.activity,
             self.base_time,
@@ -113,12 +142,28 @@ class TestActivityScheduler(unittest.TestCase):
         )
 
         self.assertIsNone(
-            self.activity.phase_started_at
+            self.activity.phase_started_at,
         )
 
         self.assertIsNone(
-            self.activity.next_transition_at
+            self.activity.next_transition_at,
         )
+
+    def test_naive_datetime_is_rejected(self) -> None:
+        naive_time = datetime(
+            2026,
+            8,
+            20,
+            10,
+            0,
+            0,
+        )
+
+        with self.assertRaises(ValueError):
+            self.scheduler.advance(
+                self.activity,
+                naive_time,
+            )
 
     # --------------------------------------------------
     # Preparing -> Working
@@ -139,7 +184,7 @@ class TestActivityScheduler(unittest.TestCase):
         self.assertEqual(
             transitions,
             [
-                ActivityTransition.START_WORK
+                ActivityTransition.START_WORK,
             ],
         )
 
@@ -192,6 +237,18 @@ class TestActivityScheduler(unittest.TestCase):
             0,
         )
 
+        self.assertEqual(
+            self.activity.phase_started_at,
+            self.base_time,
+        )
+
+        self.assertEqual(
+            self.activity.next_transition_at,
+            self.base_time + timedelta(
+                minutes=5
+            ),
+        )
+
     # --------------------------------------------------
     # Working -> Break
     # --------------------------------------------------
@@ -220,7 +277,7 @@ class TestActivityScheduler(unittest.TestCase):
         self.assertEqual(
             transitions,
             [
-                ActivityTransition.START_BREAK
+                ActivityTransition.START_BREAK,
             ],
         )
 
@@ -283,7 +340,7 @@ class TestActivityScheduler(unittest.TestCase):
         self.assertEqual(
             transitions,
             [
-                ActivityTransition.START_WORK
+                ActivityTransition.START_WORK,
             ],
         )
 
@@ -327,6 +384,7 @@ class TestActivityScheduler(unittest.TestCase):
             owner_user_id=1001,
             source_plurk_id=2001,
             config=config,
+            created_at=self.base_time,
         )
 
         prepare_end = self.base_time + timedelta(
@@ -350,7 +408,7 @@ class TestActivityScheduler(unittest.TestCase):
         self.assertEqual(
             transitions,
             [
-                ActivityTransition.FINISH
+                ActivityTransition.FINISH,
             ],
         )
 
@@ -370,7 +428,7 @@ class TestActivityScheduler(unittest.TestCase):
         )
 
         self.assertIsNone(
-            activity.next_transition_at
+            activity.next_transition_at,
         )
 
     def test_final_round_does_not_enter_break(
@@ -387,6 +445,7 @@ class TestActivityScheduler(unittest.TestCase):
             owner_user_id=1001,
             source_plurk_id=2001,
             config=config,
+            created_at=self.base_time,
         )
 
         prepare_end = self.base_time + timedelta(
@@ -431,12 +490,12 @@ class TestActivityScheduler(unittest.TestCase):
 
         # Timeline:
         #
-        # 18:00 prepare
-        # 18:05 work #1
-        # 18:30 break
-        # 18:35 work #2
+        # 10:00 prepare
+        # 10:05 work #1
+        # 10:30 break
+        # 10:35 work #2
         #
-        # Check at 18:35.
+        # Check at 10:35.
 
         check_time = self.base_time + timedelta(
             minutes=35
@@ -499,15 +558,16 @@ class TestActivityScheduler(unittest.TestCase):
             owner_user_id=1001,
             source_plurk_id=2001,
             config=config,
+            created_at=self.base_time,
         )
 
         # Timeline:
         #
-        # 18:00 prepare
-        # 18:05 work #1
-        # 18:15 break
-        # 18:20 work #2
-        # 18:30 finished
+        # 10:00 prepare
+        # 10:05 work #1
+        # 10:15 break
+        # 10:20 work #2
+        # 10:30 finished
 
         finish_time = self.base_time + timedelta(
             minutes=30
@@ -546,7 +606,7 @@ class TestActivityScheduler(unittest.TestCase):
         )
 
         self.assertIsNone(
-            activity.next_transition_at
+            activity.next_transition_at,
         )
 
     # --------------------------------------------------
@@ -602,6 +662,7 @@ class TestActivityScheduler(unittest.TestCase):
             owner_user_id=1001,
             source_plurk_id=2001,
             config=config,
+            created_at=self.base_time,
         )
 
         prepare_end = self.base_time + timedelta(
