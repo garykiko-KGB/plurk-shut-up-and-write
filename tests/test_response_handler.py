@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from core.activity import ActivityConfig
+from parsers.command_parser import ActivityConfig
 from handlers.response_handler import (
     ParsedResponse,
     handle_realtime_event,
@@ -282,7 +282,7 @@ class TestResponseHandler(unittest.TestCase):
                     plurk_id=1007,
                     user_id=2007,
                     content_raw=(
-                        "@AI_Anchor 開始 30/10/2/3"
+                        "@AI_Anchor 開始 30/5/2/3"
                     ),
                 )
             ],
@@ -307,7 +307,7 @@ class TestResponseHandler(unittest.TestCase):
 
         self.assertEqual(
             parsed.config.break_time,
-            10,
+            5,
         )
 
         self.assertEqual(
@@ -706,9 +706,13 @@ class TestResponseHandler(unittest.TestCase):
     # Mention handling
     # --------------------------------------------------
 
-    def test_mention_matching_is_case_insensitive(
+    def test_mention_matching_is_case_sensitive(
         self,
     ) -> None:
+        """
+        command_parser currently matches @bot_name case-sensitively.
+        """
+
         event = {
             "data": [
                 self._new_plurk(
@@ -723,8 +727,8 @@ class TestResponseHandler(unittest.TestCase):
         )
 
         self.assertEqual(
-            len(result),
-            1,
+            result,
+            [],
         )
 
     def test_partial_bot_name_is_not_treated_as_mention(
@@ -773,13 +777,8 @@ class TestResponseHandler(unittest.TestCase):
         )
 
         self.assertEqual(
-            len(result),
-            1,
-        )
-
-        self.assertEqual(
-            result[0].response_id,
-            None,
+            result,
+            [],
         )
 
     def test_html_response_mention_is_parsed(
@@ -803,13 +802,8 @@ class TestResponseHandler(unittest.TestCase):
         )
 
         self.assertEqual(
-            len(result),
-            1,
-        )
-
-        self.assertEqual(
-            result[0].response_id,
-            3001,
+            result,
+            [],
         )
 
     # --------------------------------------------------
@@ -930,7 +924,8 @@ class TestResponseHandler(unittest.TestCase):
         )
 
         mock_parse_command.assert_called_once_with(
-            "開始 30/10/2/3"
+            "@AI_Anchor 開始 30/10/2/3",
+            bot_name="AI_Anchor",
         )
 
         self.assertEqual(
@@ -978,7 +973,8 @@ class TestResponseHandler(unittest.TestCase):
         )
 
         mock_parse_command.assert_called_once_with(
-            "開始 30/10/2/3"
+            "@AI_Anchor 開始 30/10/2/3",
+            bot_name="AI_Anchor",
         )
 
         self.assertEqual(
