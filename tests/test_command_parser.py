@@ -1,6 +1,6 @@
 import unittest
 
-from command_parser import (
+from parsers.command_parser import (
     ActivityConfig,
     CommandParseError,
     parse_command,
