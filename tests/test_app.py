@@ -1,6 +1,7 @@
+import io
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from core.activity import (
     Activity,
@@ -11,12 +12,128 @@ from core.activity_scheduler import ActivityTransition
 from handlers.response_handler import ParsedResponse
 
 
+class TestHealthRequestHandler(unittest.TestCase):
+    """Tests for the Render/UptimeRobot health endpoint."""
+
+    def setUp(self) -> None:
+        from app import HealthRequestHandler
+
+        self.handler = object.__new__(
+            HealthRequestHandler
+        )
+
+        self.handler.wfile = io.BytesIO()
+        self.handler.send_response = Mock()
+        self.handler.send_header = Mock()
+        self.handler.end_headers = Mock()
+
+    def _read_response_body(self) -> dict:
+        import json
+
+        self.handler.wfile.seek(0)
+
+        return json.loads(
+            self.handler.wfile.read().decode(
+                "utf-8"
+            )
+        )
+
+    # --------------------------------------------------
+    # GET /health
+    # --------------------------------------------------
+
+    def test_get_health_returns_ok(self) -> None:
+        self.handler.path = "/health"
+
+        self.handler.do_GET()
+
+        self.handler.send_response.assert_called_once_with(
+            200
+        )
+
+        self.handler.end_headers.assert_called_once()
+
+        body = self._read_response_body()
+
+        self.assertEqual(
+            body,
+            {
+                "status": "ok",
+                "service": "plurk-shut-up-and-write",
+            },
+        )
+
+    # --------------------------------------------------
+    # GET unknown path
+    # --------------------------------------------------
+
+    def test_get_unknown_path_returns_404(self) -> None:
+        self.handler.path = "/unknown"
+
+        self.handler.do_GET()
+
+        self.handler.send_response.assert_called_once_with(
+            404
+        )
+
+        body = self._read_response_body()
+
+        self.assertEqual(
+            body,
+            {
+                "status": "not_found",
+            },
+        )
+
+    # --------------------------------------------------
+    # HEAD /health
+    # --------------------------------------------------
+
+    def test_head_health_returns_200(self) -> None:
+        self.handler.path = "/health"
+
+        self.handler.do_HEAD()
+
+        self.handler.send_response.assert_called_once_with(
+            200
+        )
+
+        self.handler.end_headers.assert_called_once()
+
+        self.assertEqual(
+            self.handler.wfile.getvalue(),
+            b"",
+        )
+
+    # --------------------------------------------------
+    # HEAD unknown path
+    # --------------------------------------------------
+
+    def test_head_unknown_path_returns_404(self) -> None:
+        self.handler.path = "/unknown"
+
+        self.handler.do_HEAD()
+
+        self.handler.send_response.assert_called_once_with(
+            404
+        )
+
+        self.handler.end_headers.assert_called_once()
+
+        self.assertEqual(
+            self.handler.wfile.getvalue(),
+            b"",
+        )
+
+
 class TestShutUpAndWriteApp(unittest.TestCase):
     """Tests for the application entry point."""
 
     def setUp(self) -> None:
         self.channel = {
-            "comet_server": "https://comet.example.com/comet",
+            "comet_server": (
+                "https://comet.example.com/comet"
+            ),
             "channel_name": "generic-test-channel",
         }
 
@@ -40,6 +157,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_publisher_class,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -49,6 +167,8 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         app = ShutUpAndWriteApp(
             bot_name="AI_Anchor",
             scheduler_interval=1.0,
+            health_host="127.0.0.1",
+            health_port=10000,
         )
 
         mock_api.get_user_channel.assert_called_once_with()
@@ -63,8 +183,11 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         )
 
         mock_manager_class.assert_called_once_with()
+
         mock_scheduler_class.assert_called_once_with()
+
         mock_service_class.assert_called_once()
+
         mock_publisher_class.assert_called_once()
 
         self.assertEqual(
@@ -77,9 +200,23 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             1.0,
         )
 
+        self.assertEqual(
+            app.health_host,
+            "127.0.0.1",
+        )
+
+        self.assertEqual(
+            app.health_port,
+            10000,
+        )
+
         self.assertIs(
             app.api,
             mock_api,
+        )
+
+        self.assertIsNone(
+            app._health_server
         )
 
     # --------------------------------------------------
@@ -102,8 +239,11 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_publisher_class,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = {
-            "channel_name": "generic-test-channel",
+            "channel_name": (
+                "generic-test-channel"
+            ),
         }
 
         from app import ShutUpAndWriteApp
@@ -133,12 +273,15 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_publisher_class,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
 
         from app import ShutUpAndWriteApp
-        from services.plurk_publisher import PublishedActivity
+        from services.plurk_publisher import (
+            PublishedActivity,
+        )
 
         app = ShutUpAndWriteApp()
 
@@ -171,7 +314,10 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             ),
         )
 
-        mock_service = mock_service_class.return_value
+        mock_service = (
+            mock_service_class.return_value
+        )
+
         mock_service.create_activity.return_value = (
             activity
         )
@@ -229,6 +375,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_publisher_class,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -245,7 +392,10 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             config=ActivityConfig(),
         )
 
-        mock_service = mock_service_class.return_value
+        mock_service = (
+            mock_service_class.return_value
+        )
+
         mock_service.create_activity.side_effect = (
             ValueError("duplicate activity")
         )
@@ -280,6 +430,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_publisher_class,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -301,7 +452,10 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             source_plurk_id=2001,
         )
 
-        mock_service = mock_service_class.return_value
+        mock_service = (
+            mock_service_class.return_value
+        )
+
         mock_service.create_activity.return_value = (
             activity
         )
@@ -311,7 +465,9 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         )
 
         mock_publisher.publish_activity.side_effect = (
-            RuntimeError("Plurk publish failed")
+            RuntimeError(
+                "Plurk publish failed"
+            )
         )
 
         app._handle_parsed_response(
@@ -327,7 +483,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         )
 
     # --------------------------------------------------
-    # Realtime event filtering
+    # Realtime event handling
     # --------------------------------------------------
 
     @patch("app.handle_realtime_event")
@@ -348,6 +504,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_handler,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -398,6 +555,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_handler,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -418,7 +576,9 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             user_id=1002,
             plurk_id=2002,
             response_id=3002,
-            content_raw="@AI_Anchor 開始 20/5/3/5",
+            content_raw=(
+                "@AI_Anchor 開始 20/5/3/5"
+            ),
             config=ActivityConfig(
                 work_time=20,
                 break_time=5,
@@ -472,6 +632,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_publisher_class,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -483,11 +644,13 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         first = Activity(
             owner_user_id=1001,
             source_plurk_id=2001,
+            activity_plurk_id=3001,
         )
 
         second = Activity(
             owner_user_id=1002,
             source_plurk_id=2002,
+            activity_plurk_id=3002,
         )
 
         mock_manager = (
@@ -577,6 +740,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_publisher_class,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -588,6 +752,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         activity = Activity(
             owner_user_id=1001,
             source_plurk_id=2001,
+            activity_plurk_id=3001,
         )
 
         mock_manager = (
@@ -632,6 +797,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_logger,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -696,6 +862,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_logger,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -720,8 +887,6 @@ class TestShutUpAndWriteApp(unittest.TestCase):
             )
         )
 
-        # The application should catch the error rather than
-        # allowing it to kill the scheduler thread.
         app._handle_activity_transition(
             activity=activity,
             transition=ActivityTransition.START_WORK,
@@ -756,6 +921,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_logger,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -793,7 +959,107 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_logger.warning.assert_called_once()
 
     # --------------------------------------------------
-    # Stop handling
+    # Health server lifecycle
+    # --------------------------------------------------
+
+    @patch("app.PlurkPublisher")
+    @patch("app.ActivityService")
+    @patch("app.ActivityScheduler")
+    @patch("app.ActivityManager")
+    @patch("app.PlurkRealtime")
+    @patch("app.PlurkAPI")
+    @patch("app.ThreadingHTTPServer")
+    def test_run_health_server_creates_server(
+        self,
+        mock_server_class,
+        mock_api_class,
+        mock_realtime_class,
+        mock_manager_class,
+        mock_scheduler_class,
+        mock_service_class,
+        mock_publisher_class,
+    ) -> None:
+        mock_api = mock_api_class.return_value
+
+        mock_api.get_user_channel.return_value = (
+            self.channel
+        )
+
+        from app import ShutUpAndWriteApp
+
+        app = ShutUpAndWriteApp(
+            health_host="127.0.0.1",
+            health_port=12345,
+        )
+
+        mock_server = (
+            mock_server_class.return_value
+        )
+
+        def fake_handle_request():
+            app._stop_event.set()
+
+        mock_server.handle_request.side_effect = (
+            fake_handle_request
+        )
+
+        app._run_health_server()
+
+        mock_server_class.assert_called_once_with(
+            (
+                "127.0.0.1",
+                12345,
+            ),
+            unittest.mock.ANY,
+        )
+
+        mock_server.handle_request.assert_called_once()
+
+        mock_server.server_close.assert_called()
+
+    # --------------------------------------------------
+    # Health server failure
+    # --------------------------------------------------
+
+    @patch("app.PlurkPublisher")
+    @patch("app.ActivityService")
+    @patch("app.ActivityScheduler")
+    @patch("app.ActivityManager")
+    @patch("app.PlurkRealtime")
+    @patch("app.PlurkAPI")
+    @patch("app.ThreadingHTTPServer")
+    def test_run_health_server_handles_startup_failure(
+        self,
+        mock_server_class,
+        mock_api_class,
+        mock_realtime_class,
+        mock_manager_class,
+        mock_scheduler_class,
+        mock_service_class,
+        mock_publisher_class,
+    ) -> None:
+        mock_api = mock_api_class.return_value
+
+        mock_api.get_user_channel.return_value = (
+            self.channel
+        )
+
+        from app import ShutUpAndWriteApp
+
+        app = ShutUpAndWriteApp()
+
+        mock_server_class.side_effect = OSError(
+            "port already in use"
+        )
+
+        app._run_health_server()
+
+        self.assertTrue(
+            app._stop_event.is_set()
+        )
+
+    # --------------------------------------------------
+    # Stop / health server shutdown
     # --------------------------------------------------
 
     @patch("app.PlurkPublisher")
@@ -812,6 +1078,7 @@ class TestShutUpAndWriteApp(unittest.TestCase):
         mock_publisher_class,
     ) -> None:
         mock_api = mock_api_class.return_value
+
         mock_api.get_user_channel.return_value = (
             self.channel
         )
@@ -828,6 +1095,44 @@ class TestShutUpAndWriteApp(unittest.TestCase):
 
         self.assertTrue(
             app._stop_event.is_set()
+        )
+
+    @patch("app.PlurkPublisher")
+    @patch("app.ActivityService")
+    @patch("app.ActivityScheduler")
+    @patch("app.ActivityManager")
+    @patch("app.PlurkRealtime")
+    @patch("app.PlurkAPI")
+    def test_stop_shuts_down_health_server(
+        self,
+        mock_api_class,
+        mock_realtime_class,
+        mock_manager_class,
+        mock_scheduler_class,
+        mock_service_class,
+        mock_publisher_class,
+    ) -> None:
+        mock_api = mock_api_class.return_value
+
+        mock_api.get_user_channel.return_value = (
+            self.channel
+        )
+
+        from app import ShutUpAndWriteApp
+
+        app = ShutUpAndWriteApp()
+
+        mock_server = Mock()
+
+        app._health_server = mock_server
+
+        app.stop()
+
+        mock_server.shutdown.assert_called_once()
+        mock_server.server_close.assert_called_once()
+
+        self.assertIsNone(
+            app._health_server
         )
 
     # --------------------------------------------------
