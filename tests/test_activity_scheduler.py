@@ -1,8 +1,12 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from activity import Activity, ActivityConfig, ActivityStatus
-from activity_scheduler import (
+from core.activity import (
+    Activity,
+    ActivityConfig,
+    ActivityStatus,
+)
+from core.activity_scheduler import (
     ActivityScheduler,
     ActivityTransition,
 )
